@@ -1,8 +1,12 @@
 # TP2-TADB
 
-**Descrição:**
 
-Este projeto tem como objetivo a prática de mapeamento de dados XML para relacional.
+**Docente:** Marcos Paulo de Mesquita
+
+**Discente:** Anderson Reiner N. de Souza e Gustavo Patrício de Oliveira.
+
+---
+**Descrição:** Este projeto tem como objetivo a prática de mapeamento de dados XML para relacional.
 
 Considerando o documento SIGMOD Record disponível no XML Data Repository da Universidade de Washington
  
@@ -208,6 +212,7 @@ Modelo lógico em linha
 
 - sigmod_record ( documento )
 
+
 ### 3.1 Modelo Físico
 
 ```sql
@@ -253,14 +258,30 @@ CREATE TABLE Authorship (
         REFERENCES Author(name),
     CONSTRAINT chk_authorship_position_01 CHECK (position ~ '^[0-9]{2}$')
 );
+
+CREATE TABLE sigmod_record(
+    documento XML
+);
 ```
 
 ## 4. Funções de mapeamento (povoamento) do Banco de Dados
 
+###  Povoamento do banco.
+```sql
+INSERT INTO sigmod_record VALUES ('
+    <SigmodRecord>
+        ...
+    <SigmodRecord/>
+');
+```
+---
+
+### Mapeamento para o modelo relacional
+
 - Função para inserir Article
 ```sql
 
-CREATE OR REPLACE FUNCTION inserir_articles()
+CREATE FUNCTION inserir_articles()
 RETURNS integer AS $$
 DECLARE
     v_rows_inserted INTEGER := 0;
@@ -274,13 +295,13 @@ BEGIN
         (regexp_replace(trim(t.num),       '\D', '', 'g'))::int AS number_issue
     FROM sigmod_record,
          XMLTABLE(
-           '//issue/articles/article'   -- caminho corrigido
+           '//issue/articles/article'  
            PASSING documento
            COLUMNS
              title    TEXT PATH 'string(title)',
              initPage TEXT PATH 'string(initPage)',
              endPage  TEXT PATH 'string(endPage)',
-             vol      TEXT PATH 'string(../../volume)',  -- sobe dois níveis
+             vol      TEXT PATH 'string(../../volume)',
              num      TEXT PATH 'string(../../number)'
          ) AS t
     WHERE t.title IS NOT NULL
@@ -304,7 +325,7 @@ $$ LANGUAGE plpgsql;
 
 - Função para inserir Issue;
 ```sql
-CREATE OR REPLACE FUNCTION inserir_issues()
+CREATE FUNCTION inserir_issues()
 RETURNS void AS $$
 BEGIN
     INSERT INTO Issue (volume, number)
@@ -328,7 +349,7 @@ $$ LANGUAGE plpgsql;
 
 - Função para inserir Author
 ```sql
-CREATE OR REPLACE FUNCTION inserir_authors()
+CREATE FUNCTION inserir_authors()
 RETURNS integer AS $$
 DECLARE
     v_rows_inserted INTEGER := 0;
@@ -355,7 +376,7 @@ $$ LANGUAGE plpgsql;
 
 - Função para inserir  Authorship
 ```sql
-CREATE OR REPLACE FUNCTION inserir_authorships()
+CREATE FUNCTION inserir_authorships()
 RETURNS integer AS $$
 DECLARE
     v_rows_inserted INTEGER := 0;
@@ -402,28 +423,24 @@ $$ LANGUAGE plpgsql;
 
 - Função para inserir o documento SigmodRecord
 ```sql
-CREATE OR REPLACE FUNCTION sigmod_record()
+CREATE FUNCTION sigmod_record()
 RETURNS void AS $$
 BEGIN
     RAISE NOTICE 'Iniciando inserção completa dos dados...';
 
-    -- 1️⃣ Inserir Issues
     PERFORM inserir_issues();
     RAISE NOTICE 'Issues inseridos.';
 
-    -- 2️⃣ Inserir Articles
     PERFORM inserir_articles();
     RAISE NOTICE 'Articles inseridos.';
 
-    -- 3️⃣ Inserir Authors
     PERFORM inserir_authors();
     RAISE NOTICE 'Authors inseridos.';
 
-    -- 4️⃣ Inserir Authorships
     PERFORM inserir_authorships();
     RAISE NOTICE 'Authorships inseridos.';
 
-    RAISE NOTICE '✅ Inserção completa finalizada com sucesso.';
+    RAISE NOTICE ' Inserção completa finalizada com sucesso.';
 END;
 $$ LANGUAGE plpgsql;
 
