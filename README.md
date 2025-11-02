@@ -30,36 +30,183 @@ c) apresente as 10 consultas propostas no item ‘a’ em SQL
 
 ## 1. Consultas XPath
 
-1. Busca todos os artigos.
-```xpath
-/sigmodrecord/issue/articles
+1. Buscar pelos author que estão na posição '00'
+```sql
+SELECT DISTINCT t.author AS nome_autor
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article/authors/author[@position="00"]'
+       PASSING documento
+       COLUMNS author TEXT PATH 'string(.)'
+     ) AS t;
+
 ```
 
-2. descrição
-```xpath
-código
+2. Buscar article que tiveram somente um author
+```sql
+SELECT DISTINCT t.title, t.vol, t.num
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article[count(authors/author) = 1]'
+       PASSING documento
+       COLUMNS
+         title TEXT PATH 'string(title)',
+         vol   TEXT PATH 'string(../../volume)',
+         num   TEXT PATH 'string(../../number)'
+     ) AS t;
+
 ```
 
-3. descrição
-```xpath
-código
+3. Buscar o article que tem mais authors na sua authorship
+```sql
+SELECT t.title, t.vol, t.num, t.total_authors
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article'
+       PASSING documento
+       COLUMNS
+         title        TEXT PATH 'string(title)',
+         vol          TEXT PATH 'string(../../volume)',
+         num          TEXT PATH 'string(../../number)',
+         total_authors INTEGER PATH 'count(authors/author)'
+     ) AS t
+ORDER BY t.total_authors DESC
+LIMIT 1;
+```
+4. Buscar article que tem a initPage = 0
+```sql
+SELECT t.title, t.vol, t.num, t.initPage
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article[initPage = "0"]'
+       PASSING documento
+       COLUMNS
+         title    TEXT PATH 'string(title)',
+         initPage TEXT PATH 'string(initPage)',
+         vol      TEXT PATH 'string(../../volume)',
+         num      TEXT PATH 'string(../../number)'
+     ) AS t;
+```
+
+5. Buscar article com número de páginas ≥ 40 (endPage - initPage >= 40)
+```sql
+SELECT 
+    t.title, 
+    t.vol, 
+    t.num, 
+    (t.endPage::int - t.initPage::int) AS total_paginas
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article'
+       PASSING documento
+       COLUMNS
+         title    TEXT PATH 'string(title)',
+         initPage TEXT PATH 'string(initPage)',
+         endPage  TEXT PATH 'string(endPage)',
+         vol      TEXT PATH 'string(../../volume)',
+         num      TEXT PATH 'string(../../number)'
+     ) AS t
+WHERE (t.endPage::int - t.initPage::int) >= 40;
+```
+
+6. Buscar article que tem no título a palavra 'database'
+```sql
+SELECT t.title, t.vol, t.num
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article[contains(translate(title, ''ABCDEFGHIJKLMNOPQRSTUVWXYZ'', ''abcdefghijklmnopqrstuvwxyz''), ''database'')]'
+       PASSING documento
+       COLUMNS
+         title TEXT PATH 'string(title)',
+         vol   TEXT PATH 'string(../../volume)',
+         num   TEXT PATH 'string(../../number)'
+     ) AS t;
+```
+
+7. Buscar a issue que possui maior número de article
+```sql
+SELECT t.volume, t.number, t.total_articles
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue'
+       PASSING documento
+       COLUMNS
+         volume TEXT PATH 'string(volume)',
+         number TEXT PATH 'string(number)',
+         total_articles INTEGER PATH 'count(articles/article)'
+     ) AS t
+ORDER BY t.total_articles DESC
+LIMIT 1;
+
+```
+8. Buscar a issue que possui menor número de article
+```sql
+SELECT t.volume, t.number, t.total_articles
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue'
+       PASSING documento
+       COLUMNS
+         volume TEXT PATH 'string(volume)',
+         number TEXT PATH 'string(number)',
+         total_articles INTEGER PATH 'count(articles/article)'
+     ) AS t
+ORDER BY t.total_articles ASC
+LIMIT 1;
+
+```
+9. Buscar article com o título com maior número de caracteres
+
+```sql
+SELECT t.title, t.vol, t.num, LENGTH(t.title) AS tamanho_titulo
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article'
+       PASSING documento
+       COLUMNS
+         title TEXT PATH 'string(title)',
+         vol   TEXT PATH 'string(../../volume)',
+         num   TEXT PATH 'string(../../number)'
+     ) AS t
+ORDER BY LENGTH(t.title) DESC
+LIMIT 1;
+
+```
+10. Buscar article com o título com menor número de caracteres
+
+```sql
+SELECT t.title, t.vol, t.num, LENGTH(t.title) AS tamanho_titulo
+FROM sigmod_record,
+     XMLTABLE(
+       '//issue/articles/article'
+       PASSING documento
+       COLUMNS
+         title TEXT PATH 'string(title)',
+         vol   TEXT PATH 'string(../../volume)',
+         num   TEXT PATH 'string(../../number)'
+     ) AS t
+ORDER BY LENGTH(t.title) ASC
+LIMIT 1;
+
 ```
 
 ## 2. Modelo Conceitual do Banco de Dados (MER)
 
-![imagem](./mer.png)
+![imagem](./modelo_conceitual.png)
 
 ## 3. Modelo Lógico Relacional do Banco de Dados
 
 Modelo lógico em linha
 
-- ISSUE ( <ins>volume</ins> , <ins> number</ins> )
+- Issue ( <ins>volume</ins> , <ins> number</ins> )
 
-- ARTICLE ( <ins>title</ins> , <ins>volume_issue</ins> , <ins>number_issue</ins> , initPage , endPage )
+- Article ( <ins>title</ins> , <ins>volume_issue</ins> , <ins>number_issue</ins> , initPage , endPage )
 
-- AUTHOR ( <ins>name</ins> )
+- Author ( <ins>name</ins> )
 
-- AUTHORSHIP ( <ins> article_title</ins> , <ins>article_volume</ins> , <ins> article_number</ins> , <ins> author_name</ins> , <ins> position</ins> )
+- Authorship ( <ins> article_title</ins> , <ins>article_volume</ins> , <ins> article_number</ins> , <ins> author_name</ins> , <ins> position</ins> )
+
+- sigmod_record ( documento )
 
 ### 3.1 Modelo Físico
 
@@ -283,3 +430,90 @@ $$ LANGUAGE plpgsql;
 ```
 
 ## 5. Consultas SQL equivalentes à XPath proposta no item 1
+
+
+1. Buscar pelos authors que estão na posição '00'
+```sql
+SELECT DISTINCT a.name
+FROM Author a
+JOIN Authorship au ON a.name = au.author_name
+WHERE au.position = '00';
+```
+
+2. Buscar article que tiveram somente um author
+```sql
+SELECT ar.title, ar.volume_issue, ar.number_issue
+FROM Article ar
+JOIN Authorship au ON ar.title = au.article_title 
+                   AND ar.volume_issue = au.article_volume
+                   AND ar.number_issue = au.article_number
+GROUP BY ar.title, ar.volume_issue, ar.number_issue
+HAVING COUNT(au.author_name) = 1;
+```
+3. Buscar o article que tem mais author na authorship
+```sql
+SELECT ar.title, ar.volume_issue, ar.number_issue, COUNT(au.author_name) AS total_authors
+FROM Article ar
+JOIN Authorship au ON ar.title = au.article_title 
+                   AND ar.volume_issue = au.article_volume
+                   AND ar.number_issue = au.article_number
+GROUP BY ar.title, ar.volume_issue, ar.number_issue
+ORDER BY total_authors DESC
+LIMIT 1;
+```
+4. Buscar article que têm initPage = 0
+```sql
+SELECT title, volume_issue, number_issue, initPage, endPage
+FROM Article
+WHERE initPage = 0;
+```
+5. Buscar article com número de páginas ≥ 40
+
+Usando (endPage - initPage) >= 40
+
+```sql
+SELECT title, volume_issue, number_issue, (endPage - initPage) AS total_paginas
+FROM Article
+WHERE (endPage - initPage) >= 40;
+```
+6. Buscar article que têm 'database' no título
+
+
+```sql
+SELECT title, volume_issue, number_issue
+FROM Article
+WHERE LOWER(title) LIKE '%database%';
+```
+7. Buscar a issue que possui maior número de article
+```sql
+SELECT i.volume, i.number, COUNT(a.title) AS total_articles
+FROM Issue i
+JOIN Article a ON a.volume_issue = i.volume AND a.number_issue = i.number
+GROUP BY i.volume, i.number
+ORDER BY total_articles DESC
+LIMIT 1;
+```
+8. Buscar a issue que possui menor número de article
+
+```sql
+SELECT i.volume, i.number, COUNT(a.title) AS total_articles
+FROM Issue i
+JOIN Article a ON a.volume_issue = i.volume AND a.number_issue = i.number
+GROUP BY i.volume, i.number
+ORDER BY total_articles ASC
+LIMIT 1;
+```
+9. Buscar o article com o título mais longo
+```sql
+SELECT title, volume_issue, number_issue, LENGTH(title) AS tamanho_titulo
+FROM Article
+ORDER BY LENGTH(title) DESC
+LIMIT 1;
+```
+10. Buscar o article com o título mais curto
+```sql
+SELECT title, volume_issue, number_issue, LENGTH(title) AS tamanho_titulo
+FROM Article
+ORDER BY LENGTH(title) ASC
+LIMIT 1;
+```
