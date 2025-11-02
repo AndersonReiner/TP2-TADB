@@ -110,113 +110,176 @@ CREATE TABLE Authorship (
 
 ## 4. Funções de mapeamento (povoamento) do Banco de Dados
 
-Povoamento do banco de dados com PYTHON.
+- Função para inserir Article
+```sql
 
-**Requisitos**
+CREATE OR REPLACE FUNCTION inserir_articles()
+RETURNS integer AS $$
+DECLARE
+    v_rows_inserted INTEGER := 0;
+BEGIN
+    INSERT INTO Article (title, initPage, endPage, volume_issue, number_issue)
+    SELECT DISTINCT
+        trim(t.title) AS title,
+        (regexp_replace(trim(t.initPage), '\D', '', 'g'))::int AS initpage,
+        (regexp_replace(trim(t.endPage),   '\D', '', 'g'))::int AS endpage,
+        (regexp_replace(trim(t.vol),       '\D', '', 'g'))::int AS volume_issue,
+        (regexp_replace(trim(t.num),       '\D', '', 'g'))::int AS number_issue
+    FROM sigmod_record,
+         XMLTABLE(
+           '//issue/articles/article'   -- caminho corrigido
+           PASSING documento
+           COLUMNS
+             title    TEXT PATH 'string(title)',
+             initPage TEXT PATH 'string(initPage)',
+             endPage  TEXT PATH 'string(endPage)',
+             vol      TEXT PATH 'string(../../volume)',  -- sobe dois níveis
+             num      TEXT PATH 'string(../../number)'
+         ) AS t
+    WHERE t.title IS NOT NULL
+      AND trim(t.title) <> ''
+      AND t.initPage IS NOT NULL
+      AND t.endPage IS NOT NULL
+      AND regexp_replace(t.initPage, '\D', '', 'g') ~ '^[0-9]+$'
+      AND regexp_replace(t.endPage,  '\D', '', 'g') ~ '^[0-9]+$'
+      AND t.vol IS NOT NULL
+      AND t.num IS NOT NULL
+      AND regexp_replace(t.vol, '\D', '', 'g') ~ '^[0-9]+$'
+      AND regexp_replace(t.num, '\D', '', 'g') ~ '^[0-9]+$'
+      AND (regexp_replace(t.endPage, '\D', '', 'g'))::int >= (regexp_replace(t.initPage, '\D', '', 'g'))::int
+    ON CONFLICT DO NOTHING;
 
-- Instalação das bibliotecas do **psycopg2** e **xml.etree.ElementTree**
-
-- O arquivo **XML** deve estar mesmo nível do diretório do arquivo executável **PYTHON**.
-
-```python
-import xml.etree.ElementTree as ET
-import psycopg2
-
-# === CONFIGURAÇÃO DO BANCO ===
-connection_params = {
-    "dbname": "new-database",
-    "user": "root",
-    "password": "root",
-    "host": "localhost",
-    "port": "5432"
-}
-
-conn = psycopg2.connect(**connection_params)
-cur = conn.cursor()
-
-# === CARREGAR O XML ===
-tree = ET.parse("SigmodRecord.xml")
-root = tree.getroot()
-
-print(f"📂 Tag raiz: {root.tag}")
-
-# === PERCORRER AS ISSUES ===
-for issue in root.findall("issue"):
-    volume = issue.findtext("volume")
-    number = issue.findtext("number")
-
-    if not volume or not number:
-        continue
-
-    volume = int(volume)
-    number = int(number)
-
-    print(f"📘 Inserindo Issue: volume={volume}, number={number}")
-    cur.execute("""
-        INSERT INTO Issue (volume, number)
-        VALUES (%s, %s)
-        ON CONFLICT DO NOTHING;
-    """, (volume, number))
-
-    # === PERCORRER ARTIGOS ===
-    articles_tag = issue.find("articles")
-    if articles_tag is None:
-        continue
-
-    for article in articles_tag.findall("article"):
-        title = article.findtext("title") or "Sem título"
-        initpage = article.findtext("initPage") or "0"
-        endpage = article.findtext("endPage") or "0"
-
-        # Converte páginas para inteiros
-        try:
-            initpage = int(initpage)
-            endpage = int(endpage)
-        except ValueError:
-            initpage, endpage = 0, 0
-
-        print(f"  📝 Inserindo Article: {title[:60]}...")
-
-        cur.execute("""
-            INSERT INTO Article (title, initPage, endPage, volume_issue, number_issue)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING;
-        """, (title, initpage, endpage, volume, number))
-
-        # === AUTORES ===
-        authors_tag = article.find("authors")
-        if authors_tag is not None:
-            for i, author in enumerate(authors_tag.findall("author"), start=1):
-                name = (author.text or "").strip()
-                if not name:
-                    continue
-
-                # Insere autor
-                cur.execute("""
-                    INSERT INTO Author (name)
-                    VALUES (%s)
-                    ON CONFLICT DO NOTHING;
-                """, (name,))
-
-                # Formata posição como '01', '02', etc.
-                position = f"{i:02d}"
-
-                # Insere autoria (relação)
-                cur.execute("""
-                    INSERT INTO Authorship (article_title, article_volume, article_number, author_name, position)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT DO NOTHING;
-                """, (title, volume, number, name, position))
-
-# === CONFIRMAR MUDANÇAS ===
-conn.commit()
-print("\n✅ Inserção concluída com sucesso!")
-
-cur.close()
-conn.close()
+    GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;
+    RETURN v_rows_inserted;
+END;
+$$ LANGUAGE plpgsql;
 ```
 
-ATENÇÃO: Linha do código responsável por pegar o arquivo **XML** pelo nome.
-> tree = ET.parse("SigmodRecord.xml")
+- Função para inserir Issue;
+```sql
+CREATE OR REPLACE FUNCTION inserir_issues()
+RETURNS void AS $$
+BEGIN
+    INSERT INTO Issue (volume, number)
+    SELECT DISTINCT
+        x.vol::int AS volume,
+        x.num::int AS number
+    FROM sigmod_record,
+    XMLTABLE(
+        '//issue'
+        PASSING documento
+        COLUMNS
+            vol TEXT PATH 'string(@volume | volume)',
+            num TEXT PATH 'string(@number | number)'
+    ) AS x
+    WHERE x.vol IS NOT NULL
+      AND x.num IS NOT NULL
+    ON CONFLICT DO NOTHING;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+- Função para inserir Author
+```sql
+CREATE OR REPLACE FUNCTION inserir_authors()
+RETURNS integer AS $$
+DECLARE
+    v_rows_inserted INTEGER := 0;
+BEGIN
+    INSERT INTO Author (name)
+    SELECT DISTINCT trim(t.author_name)
+    FROM sigmod_record,
+         XMLTABLE(
+           '//issue/articles/article/authors/author'
+           PASSING documento
+           COLUMNS
+             author_name TEXT PATH 'string(.)'
+         ) AS t
+    WHERE t.author_name IS NOT NULL
+      AND trim(t.author_name) <> ''
+    ON CONFLICT DO NOTHING;
+
+    GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;
+    RETURN v_rows_inserted;
+END;
+$$ LANGUAGE plpgsql;
+
+```
+
+- Função para inserir  Authorship
+```sql
+CREATE OR REPLACE FUNCTION inserir_authorships()
+RETURNS integer AS $$
+DECLARE
+    v_rows_inserted INTEGER := 0;
+BEGIN
+    INSERT INTO Authorship (
+        article_title,
+        article_volume,
+        article_number,
+        author_name,
+        position
+    )
+    SELECT DISTINCT
+        trim(t.title) AS article_title,
+        (trim(t.vol))::int AS article_volume,
+        (trim(t.num))::int AS article_number,
+        trim(t.author_name) AS author_name,
+        lpad(trim(t.position), 2, '0') AS position
+    FROM sigmod_record,
+         XMLTABLE(
+           '//issue/articles/article/authors/author'
+           PASSING documento
+           COLUMNS
+             author_name TEXT PATH 'string(.)',
+             position    TEXT PATH 'string(@position)',
+             title       TEXT PATH 'string(../../title)',
+             vol         TEXT PATH 'string(../../../../volume)',
+             num         TEXT PATH 'string(../../../../number)'
+         ) AS t
+    WHERE t.author_name IS NOT NULL
+      AND trim(t.author_name) <> ''
+      AND t.title IS NOT NULL
+      AND trim(t.title) <> ''
+      AND t.vol ~ '^[0-9]+$'
+      AND t.num ~ '^[0-9]+$'
+      AND trim(t.position) ~ '^[0-9]{1,2}$'
+    ON CONFLICT DO NOTHING;
+
+    GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;
+    RETURN v_rows_inserted;
+END;
+$$ LANGUAGE plpgsql;
+
+```
+
+- Função para inserir o documento SigmodRecord
+```sql
+CREATE OR REPLACE FUNCTION sigmod_record()
+RETURNS void AS $$
+BEGIN
+    RAISE NOTICE 'Iniciando inserção completa dos dados...';
+
+    -- 1️⃣ Inserir Issues
+    PERFORM inserir_issues();
+    RAISE NOTICE 'Issues inseridos.';
+
+    -- 2️⃣ Inserir Articles
+    PERFORM inserir_articles();
+    RAISE NOTICE 'Articles inseridos.';
+
+    -- 3️⃣ Inserir Authors
+    PERFORM inserir_authors();
+    RAISE NOTICE 'Authors inseridos.';
+
+    -- 4️⃣ Inserir Authorships
+    PERFORM inserir_authorships();
+    RAISE NOTICE 'Authorships inseridos.';
+
+    RAISE NOTICE '✅ Inserção completa finalizada com sucesso.';
+END;
+$$ LANGUAGE plpgsql;
+
+```
 
 ## 5. Consultas SQL equivalentes à XPath proposta no item 1
