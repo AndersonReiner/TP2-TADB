@@ -446,6 +446,11 @@ $$ LANGUAGE plpgsql;
 
 ```
 
+Para povoar o banco basta rodar a chamar a função 
+```sql
+SELECT sigmod_record();
+```
+
 ## 5. Consultas SQL equivalentes à XPath proposta no item 1
 
 
@@ -534,3 +539,7 @@ FROM Article
 ORDER BY LENGTH(title) ASC
 LIMIT 1;
 ```
+
+---
+
+[Versão do backup do banco de dados já povoado e com as funções criadas, ficando sucetivo de imediato as consultas SQL ou XPath.](./dump_sigmod_record)
